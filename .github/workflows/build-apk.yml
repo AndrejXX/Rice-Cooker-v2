@@ -1,0 +1,214 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Preuzmi kod repozitorija
+        uses: actions/checkout@v4
+
+      - name: Postavi Javu 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Postavi Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Generiraj nativni Android projekt
+        run: |
+          python3 - << 'PY'
+          import glob, os, shutil, textwrap
+
+          os.makedirs("app/src/main/java/hr/ricecooker/kalkulator", exist_ok=True)
+          os.makedirs("app/src/main/assets", exist_ok=True)
+
+          candidates = [f for f in (glob.glob("*") + glob.glob("www/*")) if os.path.isfile(f) and "html" in f.lower()]
+          if not candidates:
+              raise RuntimeError("GRESKA: Nije pronadena HTML datoteka u repozitoriju!")
+          shutil.copyfile(candidates[0], "app/src/main/assets/index.html")
+          if os.path.getsize("app/src/main/assets/index.html") < 500:
+              raise RuntimeError("GRESKA: HTML datoteka je prazna!")
+
+          files = {
+              "settings.gradle": textwrap.dedent("""\
+                  pluginManagement {
+                      repositories {
+                          google()
+                          mavenCentral()
+                          gradlePluginPortal()
+                      }
+                  }
+                  dependencyResolutionManagement {
+                      repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+                      repositories {
+                          google()
+                          mavenCentral()
+                      }
+                  }
+                  rootProject.name = "RiceCooker"
+                  include(":app")
+              """),
+              "build.gradle": textwrap.dedent("""\
+                  plugins {
+                      id 'com.android.application' version '8.5.2' apply false
+                  }
+              """),
+              "gradle.properties": textwrap.dedent("""\
+                  org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+                  android.useAndroidX=true
+              """),
+              "app/build.gradle": textwrap.dedent("""\
+                  plugins {
+                      id 'com.android.application'
+                  }
+
+                  android {
+                      namespace 'hr.ricecooker.kalkulator'
+                      compileSdk 34
+
+                      defaultConfig {
+                          applicationId "hr.ricecooker.kalkulator"
+                          minSdk 24
+                          targetSdk 34
+                          versionCode 1
+                          versionName "1.0"
+                      }
+
+                      compileOptions {
+                          sourceCompatibility JavaVersion.VERSION_17
+                          targetCompatibility JavaVersion.VERSION_17
+                      }
+                  }
+              """),
+              "app/src/main/AndroidManifest.xml": textwrap.dedent("""\
+                  <?xml version="1.0" encoding="utf-8"?>
+                  <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                      <application
+                          android:label="Rice cooker"
+                          android:hardwareAccelerated="true"
+                          android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                          <activity
+                              android:name=".MainActivity"
+                              android:exported="true"
+                              android:screenOrientation="portrait"
+                              android:configChanges="orientation|screenSize|keyboardHidden">
+                              <intent-filter>
+                                  <action android:name="android.intent.action.MAIN" />
+                                  <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                          </activity>
+                      </application>
+                  </manifest>
+              """),
+              "app/src/main/java/hr/ricecooker/kalkulator/MainActivity.java": textwrap.dedent("""\
+                  package hr.ricecooker.kalkulator;
+
+                  import android.app.Activity;
+                  import android.graphics.Color;
+                  import android.os.Bundle;
+                  import android.view.ViewGroup;
+                  import android.view.Window;
+                  import android.view.WindowManager;
+                  import android.webkit.WebChromeClient;
+                  import android.webkit.WebSettings;
+                  import android.webkit.WebView;
+                  import android.webkit.WebViewClient;
+                  import android.widget.FrameLayout;
+                  import java.io.ByteArrayOutputStream;
+                  import java.io.InputStream;
+                  import java.nio.charset.StandardCharsets;
+
+                  public class MainActivity extends Activity {
+                      private WebView webView;
+
+                      @Override
+                      protected void onCreate(Bundle savedInstanceState) {
+                          super.onCreate(savedInstanceState);
+
+                          Window window = getWindow();
+                          window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                          window.setStatusBarColor(Color.BLACK);
+                          window.setNavigationBarColor(Color.BLACK);
+
+                          FrameLayout root = new FrameLayout(this);
+                          root.setBackgroundColor(Color.BLACK);
+                          root.setLayoutParams(new ViewGroup.LayoutParams(
+                                  ViewGroup.LayoutParams.MATCH_PARENT,
+                                  ViewGroup.LayoutParams.MATCH_PARENT));
+
+                          webView = new WebView(this);
+                          webView.setBackgroundColor(Color.BLACK);
+                          webView.setLayoutParams(new FrameLayout.LayoutParams(
+                                  ViewGroup.LayoutParams.MATCH_PARENT,
+                                  ViewGroup.LayoutParams.MATCH_PARENT));
+
+                          WebSettings settings = webView.getSettings();
+                          settings.setJavaScriptEnabled(true);
+                          settings.setDomStorageEnabled(true);
+                          settings.setUseWideViewPort(true);
+                          settings.setLoadWithOverviewMode(true);
+
+                          webView.setWebViewClient(new WebViewClient());
+                          webView.setWebChromeClient(new WebChromeClient());
+
+                          root.addView(webView);
+                          setContentView(root);
+
+                          try {
+                              InputStream is = getAssets().open("index.html");
+                              ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                              byte[] data = new byte[4096];
+                              int nRead;
+                              while ((nRead = is.read(data, 0, data.length)) != -1) {
+                                  buffer.write(data, 0, nRead);
+                              }
+                              is.close();
+                              String html = new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+                              webView.loadDataWithBaseURL("https://ricecooker.local/", html, "text/html", "UTF-8", null);
+                          } catch (Exception e) {
+                              String errHtml = "<html><body style='background:#000;color:#fff;font-family:sans-serif;padding:24px;'>"
+                                      + "<h3>Greska pri ucitavanju:</h3><pre>" + e.toString() + "</pre></body></html>";
+                              webView.loadData(errHtml, "text/html", "UTF-8");
+                          }
+                      }
+
+                      @Override
+                      public void onBackPressed() {
+                          if (webView != null && webView.canGoBack()) {
+                              webView.goBack();
+                          } else {
+                              super.onBackPressed();
+                          }
+                      }
+                  }
+              """)
+          }
+
+          for path, content in files.items():
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(content)
+          PY
+
+      - name: Kompajliraj Debug APK
+        run: gradle assembleDebug
+
+      - name: Provjeri sadrzaj APK-a
+        run: |
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep "classes.dex"
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep "assets/index.html"
+
+      - name: Spremi APK za preuzimanje
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rice-Cooker-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
