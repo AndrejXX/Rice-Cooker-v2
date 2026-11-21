@@ -27,7 +27,7 @@ jobs:
       - name: Instaliraj Pillow za generiranje ikona
         run: pip install --quiet pillow
 
-      - name: Generiraj nativni Android projekt i monochrome ikonu
+      - name: Generiraj nativni Android projekt i ikonu bez okvira
         run: |
           python3 - << 'PY'
           import glob, os, shutil, textwrap
@@ -46,26 +46,27 @@ jobs:
           if os.path.getsize("app/src/main/assets/index.html") < 500:
               raise RuntimeError("GRESKA: HTML datoteka je prazna!")
 
-          def render_icon(size, round_mask=False):
+          def render_frameless_icon(size):
               S = 512
+              # Potpuno prozirna pozadina bez ikakvog okvira
               img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
               draw = ImageDraw.Draw(img)
 
-              bg = (0, 0, 0, 255)
               fg = (255, 255, 255, 255)
-              if round_mask:
-                  draw.ellipse([0, 0, S, S], fill=bg)
-              else:
-                  draw.rounded_rectangle([0, 0, S, S], radius=112, fill=bg)
+              cut = (0, 0, 0, 0)
 
-              # Minimalisticka bijela silueta kuhala
-              draw.rounded_rectangle([210, 128, 302, 152], radius=10, fill=fg)
-              draw.pieslice([146, 156, 366, 266], start=180, end=360, fill=fg)
-              draw.rounded_rectangle([112, 236, 138, 274], radius=7, fill=fg)
-              draw.rounded_rectangle([374, 236, 400, 274], radius=7, fill=fg)
-              draw.rounded_rectangle([152, 226, 360, 368], radius=42, fill=fg)
-              draw.ellipse([224, 266, 288, 330], fill=bg)
-              draw.ellipse([242, 284, 270, 312], fill=fg)
+              # Gornja rucka poklopca
+              draw.rounded_rectangle([206, 108, 306, 136], radius=12, fill=fg)
+              # Kupola poklopca
+              draw.pieslice([132, 140, 380, 266], start=180, end=360, fill=fg)
+              # Bocne rucke
+              draw.rounded_rectangle([94, 232, 124, 276], radius=8, fill=fg)
+              draw.rounded_rectangle([388, 232, 418, 276], radius=8, fill=fg)
+              # Tijelo kuhala
+              draw.rounded_rectangle([138, 222, 374, 386], radius=46, fill=fg)
+              # Prozirni izrez tipke u sredini
+              draw.ellipse([218, 268, 294, 344], fill=cut)
+              draw.ellipse([238, 288, 274, 324], fill=fg)
 
               return img.resize((size, size), Image.Resampling.LANCZOS)
 
@@ -79,8 +80,9 @@ jobs:
           for folder, px in densities.items():
               out_dir = f"app/src/main/res/{folder}"
               os.makedirs(out_dir, exist_ok=True)
-              render_icon(px, round_mask=False).save(f"{out_dir}/ic_launcher.png")
-              render_icon(px, round_mask=True).save(f"{out_dir}/ic_launcher_round.png")
+              icon = render_frameless_icon(px)
+              icon.save(f"{out_dir}/ic_launcher.png")
+              icon.save(f"{out_dir}/ic_launcher_round.png")
 
           glyph_vector = textwrap.dedent("""\
               <?xml version="1.0" encoding="utf-8"?>
@@ -89,23 +91,19 @@ jobs:
                   android:height="108dp"
                   android:viewportWidth="108"
                   android:viewportHeight="108">
-                  <!-- Gornja rucka poklopca -->
                   <path
                       android:fillColor="#FFFFFF"
-                      android:pathData="M46.5,29.5 H61.5 C62.9,29.5 64,30.6 64,32 V34.2 H44 V32 C44,30.6 45.1,29.5 46.5,29.5 Z"/>
-                  <!-- Kupola poklopca -->
+                      android:pathData="M45.5,27 H62.5 C64,27 65.2,28.2 65.2,29.7 V32.2 H42.8 V29.7 C42.8,28.2 44,27 45.5,27 Z"/>
                   <path
                       android:fillColor="#FFFFFF"
-                      android:pathData="M32,46.5 C32,39.2 41,35.5 54,35.5 C67,35.5 76,39.2 76,46.5 Z"/>
-                  <!-- Bocne rucke -->
+                      android:pathData="M30,45.5 C30,37.4 40,33.5 54,33.5 C68,33.5 78,37.4 78,45.5 Z"/>
                   <path
                       android:fillColor="#FFFFFF"
-                      android:pathData="M26.5,51.5 H31 V58.5 H26.5 C25.4,58.5 24.5,57.6 24.5,56.5 V53.5 C24.5,52.4 25.4,51.5 26.5,51.5 Z M77,51.5 H81.5 C82.6,51.5 83.5,52.4 83.5,53.5 V56.5 C83.5,57.6 82.6,58.5 81.5,58.5 H77 V51.5 Z"/>
-                  <!-- Tijelo kuhala s izrezom tipke u sredini -->
+                      android:pathData="M24,51 H29 V59 H24 C22.8,59 21.8,58 21.8,56.8 V53.2 C21.8,52 22.8,51 24,51 Z M79,51 H84 C85.2,51 86.2,52 86.2,53.2 V56.8 C86.2,58 85.2,59 84,59 H79 V51 Z"/>
                   <path
                       android:fillColor="#FFFFFF"
                       android:fillType="evenOdd"
-                      android:pathData="M33,49.5 H75 V68 C75,73 71,77 66,77 H42 C37,77 33,73 33,68 Z M54,56.5 A6.5,6.5 0 1,0 54,69.5 A6.5,6.5 0 1,0 54,56.5 Z M54,60.2 A2.8,2.8 0 1,1 54,65.8 A2.8,2.8 0 1,1 54,60.2 Z"/>
+                      android:pathData="M31,49 H77 V69.5 C77,75 72.5,79.5 67,79.5 H41 C35.5,79.5 31,75 31,69.5 Z M54,56.5 A7.5,7.5 0 1,0 54,71.5 A7.5,7.5 0 1,0 54,56.5 Z M54,60.8 A3.2,3.2 0 1,1 54,67.2 A3.2,3.2 0 1,1 54,60.8 Z"/>
               </vector>
           """)
 
@@ -150,8 +148,8 @@ jobs:
                           applicationId "hr.ricecooker.kalkulator"
                           minSdk 24
                           targetSdk 34
-                          versionCode 3
-                          versionName "1.2"
+                          versionCode 4
+                          versionName "1.3"
                       }
 
                       compileOptions {
@@ -163,7 +161,7 @@ jobs:
               "app/src/main/res/values/ic_launcher_background.xml": textwrap.dedent("""\
                   <?xml version="1.0" encoding="utf-8"?>
                   <resources>
-                      <color name="ic_launcher_background">#000000</color>
+                      <color name="ic_launcher_background">#00000000</color>
                   </resources>
               """),
               "app/src/main/res/drawable/ic_launcher_foreground.xml": glyph_vector,
@@ -233,17 +231,17 @@ jobs:
 
                           Window window = getWindow();
                           window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-                          window.setStatusBarColor(Color.BLACK);
-                          window.setNavigationBarColor(Color.BLACK);
+                          window.setStatusBarColor(Color.parseColor("#05070A"));
+                          window.setNavigationBarColor(Color.parseColor("#05070A"));
 
                           FrameLayout root = new FrameLayout(this);
-                          root.setBackgroundColor(Color.BLACK);
+                          root.setBackgroundColor(Color.parseColor("#05070A"));
                           root.setLayoutParams(new ViewGroup.LayoutParams(
                                   ViewGroup.LayoutParams.MATCH_PARENT,
                                   ViewGroup.LayoutParams.MATCH_PARENT));
 
                           webView = new WebView(this);
-                          webView.setBackgroundColor(Color.BLACK);
+                          webView.setBackgroundColor(Color.parseColor("#05070A"));
                           webView.setLayoutParams(new FrameLayout.LayoutParams(
                                   ViewGroup.LayoutParams.MATCH_PARENT,
                                   ViewGroup.LayoutParams.MATCH_PARENT));
@@ -272,7 +270,7 @@ jobs:
                               String html = new String(buffer.toByteArray(), StandardCharsets.UTF_8);
                               webView.loadDataWithBaseURL("https://ricecooker.local/", html, "text/html", "UTF-8", null);
                           } catch (Exception e) {
-                              String errHtml = "<html><body style='background:#000;color:#fff;font-family:sans-serif;padding:24px;'>"
+                              String errHtml = "<html><body style='background:#05070a;color:#fff;font-family:sans-serif;padding:24px;'>"
                                       + "<h3>Greska pri ucitavanju:</h3><pre>" + e.toString() + "</pre></body></html>";
                               webView.loadData(errHtml, "text/html", "UTF-8");
                           }
